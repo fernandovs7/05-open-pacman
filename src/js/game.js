@@ -81,6 +81,44 @@ function wrapTunnel( a, width ) {
   }
 }
 
+function findShortestDirection( grid, startX, startY, targetX, targetY ) {
+  const width = grid[ 0 ].length;
+  const start = { x: Math.round( startX ), y: Math.round( startY ) };
+  const target = { x: Math.round( targetX ), y: Math.round( targetY ) };
+
+  if ( start.x === target.x && start.y === target.y ) return null;
+
+  const queue = [ { x: start.x, y: start.y, firstDir: null } ];
+  const visited = new Set( [ `${ start.x },${ start.y }` ] );
+
+  for ( let i = 0; i < queue.length; i++ ) {
+    const cell = queue[ i ];
+
+    for ( const dir of Object.keys( DIRS ) ) {
+      if ( !canMove( grid, cell.x, cell.y, dir, 'ghost' ) ) continue;
+
+      const d = DIRS[ dir ];
+      let x = cell.x + d.x;
+      const y = cell.y + d.y;
+      if ( y === TUNNEL_ROW ) {
+        if ( x < 0 ) x = width - 1;
+        else if ( x >= width ) x = 0;
+      }
+
+      const key = `${ x },${ y }`;
+      if ( visited.has( key ) ) continue;
+
+      const firstDir = cell.firstDir || dir;
+      if ( x === target.x && y === target.y ) return firstDir;
+
+      visited.add( key );
+      queue.push( { x, y, firstDir } );
+    }
+  }
+
+  return null;
+}
+
 function movePacman( game ) {
   const p = game.pacman;
   const grid = game.grid;
