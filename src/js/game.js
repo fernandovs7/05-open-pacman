@@ -105,7 +105,15 @@ function resolveGhostTarget( grid, targetX, targetY ) {
   return nearest;
 }
 
-function findShortestDirection( grid, startX, startY, targetX, targetY ) {
+function getGhostChoices( grid, g ) {
+  const valid = Object.keys( DIRS ).filter(
+    ( dir ) => canMove( grid, g.x, g.y, dir, 'ghost' )
+  );
+  const forward = valid.filter( ( dir ) => dir !== OPPOSITE[ g.dir ] );
+  return forward.length ? forward : valid;
+}
+
+function findShortestDirection( grid, startX, startY, targetX, targetY, firstDirections = Object.keys( DIRS ) ) {
   const width = grid[ 0 ].length;
   const start = { x: Math.round( startX ), y: Math.round( startY ) };
   const target = { x: Math.round( targetX ), y: Math.round( targetY ) };
@@ -119,6 +127,7 @@ function findShortestDirection( grid, startX, startY, targetX, targetY ) {
     const cell = queue[ i ];
 
     for ( const dir of Object.keys( DIRS ) ) {
+      if ( i === 0 && !firstDirections.includes( dir ) ) continue;
       if ( !canMove( grid, cell.x, cell.y, dir, 'ghost' ) ) continue;
 
       const d = DIRS[ dir ];
@@ -176,12 +185,8 @@ function movePacman( game ) {
 function decideGhost( game, g ) {
   const grid = game.grid;
   const p = game.pacman;
-
-  const options = Object.keys( DIRS ).filter(
-    ( dir ) => dir !== OPPOSITE[ g.dir ] && canMove( grid, g.x, g.y, dir, 'ghost' )
-  );
-  // Sin salida (callejon): permitir el giro de 180.
-  const choices = options.length ? options : [ '' + OPPOSITE[ g.dir ] ];
+  const choices = getGhostChoices( grid, g );
+  if ( !choices.length ) return;
 
   if ( g.kind === 'random' ) {
     g.dir = choices[ Math.floor( Math.random() * choices.length ) ];
@@ -206,7 +211,7 @@ function decideGhost( game, g ) {
   }
 
   const target = resolveGhostTarget( grid, targetX, targetY );
-  g.dir = findShortestDirection( grid, g.x, g.y, target.x, target.y ) || choices[ 0 ];
+  g.dir = findShortestDirection( grid, g.x, g.y, target.x, target.y, choices ) || choices[ 0 ];
 }
 
 function moveGhost( game, g ) {
@@ -227,7 +232,8 @@ function moveGhost( game, g ) {
         g.mode = 'active';
         return;
       }
-      g.dir = findShortestDirection( grid, g.x, g.y, 13, 11 );
+      const choices = getGhostChoices( grid, g );
+      g.dir = findShortestDirection( grid, g.x, g.y, 13, 11, choices );
     } else {
       decideGhost( game, g );
     }
