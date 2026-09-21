@@ -81,6 +81,28 @@ function wrapTunnel( a, width ) {
   }
 }
 
+function resolveGhostTarget( grid, targetX, targetY ) {
+  const target = { x: Math.round( targetX ), y: Math.round( targetY ) };
+  if ( !isWall( grid, target.x, target.y, 'ghost' ) ) return target;
+
+  let nearest = null;
+  let nearestDistance = Infinity;
+
+  for ( let y = 0; y < grid.length; y++ ) {
+    for ( let x = 0; x < grid[ y ].length; x++ ) {
+      if ( isWall( grid, x, y, 'ghost' ) ) continue;
+
+      const distance = Math.abs( x - target.x ) + Math.abs( y - target.y );
+      if ( distance < nearestDistance ) {
+        nearest = { x, y };
+        nearestDistance = distance;
+      }
+    }
+  }
+
+  return nearest;
+}
+
 function findShortestDirection( grid, startX, startY, targetX, targetY ) {
   const width = grid[ 0 ].length;
   const start = { x: Math.round( startX ), y: Math.round( startY ) };
