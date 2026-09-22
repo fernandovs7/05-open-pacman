@@ -12,6 +12,9 @@ const OPPOSITE = { left: 'right', right: 'left', up: 'down', down: 'up' };
 
 const PACMAN_SPEED = 0.125; // 1/8 celda/frame -> alinea cada 8 frames
 const GHOST_SPEED = 0.1;    // 1/10 celda/frame
+const FRIGHTENED_SPEED = 0.05;
+const FRIGHTENED_DURATION = 360;
+const GHOST_EATEN_POINTS = [ 200, 400, 800, 1600 ];
 
 // Crea una partida nueva. Copia MAZE (pristino) a game.grid para poder comer
 // dots sin destruir el original, y reiniciar.
@@ -21,7 +24,9 @@ function createGame() {
   grid[ PACMAN_START.y ][ PACMAN_START.x ] = 0;
 
   let dots = 0;
-  for ( const row of grid ) for ( const v of row ) if ( v === 2 ) dots++;
+  for ( const row of grid ) {
+    for ( const v of row ) if ( v === 2 || v === 4 ) dots++;
+  }
 
   return {
     state: 'start',
@@ -29,6 +34,8 @@ function createGame() {
     lives: 3,
     dotsRemaining: dots,
     roundTick: 0,
+    frightenedTicks: 0,
+    frightenedChain: 0,
     grid,
     pacman: {
       x: PACMAN_START.x,
@@ -152,6 +159,31 @@ function findShortestDirection( grid, startX, startY, targetX, targetY, firstDir
   return null;
 }
 
+function activateFrightenedMode( game ) {
+  game.frightenedTicks = FRIGHTENED_DURATION;
+  game.frightenedChain = 0;
+
+  for ( const g of game.ghosts ) {
+    if ( g.mode !== 'active' ) continue;
+    g.mode = 'frightened';
+    g.dir = OPPOSITE[ g.dir ];
+    g.speed = FRIGHTENED_SPEED;
+  }
+}
+
+function updateFrightenedMode( game ) {
+  if ( game.frightenedTicks <= 0 ) return;
+
+  game.frightenedTicks--;
+  if ( game.frightenedTicks > 0 ) return;
+
+  for ( const g of game.ghosts ) {
+    if ( g.mode !== 'frightened' ) continue;
+    g.mode = 'active';
+    g.speed = GHOST_SPEED;
+  }
+}
+
 function movePacman( game ) {
   const p = game.pacman;
   const grid = game.grid;
@@ -166,11 +198,13 @@ function movePacman( game ) {
       p.dir = p.nextDir;
       p.nextDir = null;
     }
-    // Comer dot.
-    if ( grid[ p.y ][ p.x ] === 2 ) {
+    // Comer dot o power pellet antes de mover fantasmas y resolver colisiones.
+    const tile = grid[ p.y ][ p.x ];
+    if ( tile === 2 || tile === 4 ) {
       grid[ p.y ][ p.x ] = 0;
-      game.score += 10;
+      game.score += tile === 4 ? 50 : 10;
       game.dotsRemaining--;
+      if ( tile === 4 ) activateFrightenedMode( game );
     }
     // Si no puede seguir, se detiene en la celda.
     if ( !canMove( grid, p.x, p.y, p.dir, 'pacman' ) ) return;
@@ -214,7 +248,7 @@ function decideGhost( game, g ) {
   g.dir = findShortestDirection( grid, g.x, g.y, target.x, target.y, choices ) || choices[ 0 ];
 }
 
-function moveGhost( game, g ) {
+function moveGhost( game, g, index ) {
   const grid = game.grid;
   const width = grid[ 0 ].length;
 
@@ -226,15 +260,39 @@ function moveGhost( game, g ) {
   if ( aligned( g.x ) && aligned( g.y ) ) {
     g.x = Math.round( g.x );
     g.y = Math.round( g.y );
+    let recovered = false;
+
+    if ( g.mode === 'eaten' ) {
+      const start = GHOST_STARTS[ index ];
+      g.speed = GHOST_SPEED;
+      if ( g.x === start.x && g.y === start.y ) {
+        g.mode = 'exiting';
+        g.dir = findShortestDirection( grid, g.x, g.y, 13, 11 );
+        recovered = true;
+      } else {
+        g.dir = findShortestDirection( grid, g.x, g.y, start.x, start.y );
+      }
+    }
 
     if ( g.mode === 'exiting' ) {
       if ( g.x === 13 && g.y === 11 ) {
         g.mode = 'active';
+        g.speed = GHOST_SPEED;
         return;
       }
-      const choices = getGhostChoices( grid, g );
-      g.dir = findShortestDirection( grid, g.x, g.y, 13, 11, choices );
-    } else {
+      if ( !recovered ) {
+        const choices = getGhostChoices( grid, g );
+        g.dir = findShortestDirection( grid, g.x, g.y, 13, 11, choices );
+      }
+    } else if ( g.mode === 'frightened' ) {
+      // En el tick de activacion conserva la inversion antes de decidir al azar.
+      if ( game.frightenedTicks !== FRIGHTENED_DURATION ) {
+        const choices = getGhostChoices( grid, g );
+        if ( choices.length ) {
+          g.dir = choices[ Math.floor( Math.random() * choices.length ) ];
+        }
+      }
+    } else if ( g.mode === 'active' ) {
       decideGhost( game, g );
     }
 
@@ -255,10 +313,13 @@ function resetPositions( game ) {
   p.dir = 'left';
   p.nextDir = null;
   game.roundTick = 0;
+  game.frightenedTicks = 0;
+  game.frightenedChain = 0;
   game.ghosts.forEach( ( g, i ) => {
     g.x = GHOST_STARTS[ i ].x;
     g.y = GHOST_STARTS[ i ].y;
     g.dir = 'up';
+    g.speed = GHOST_SPEED;
     g.mode = 'waiting';
   } );
 }
@@ -268,20 +329,32 @@ function collides( a, b ) {
 }
 
 function update( game ) {
+  updateFrightenedMode( game );
   movePacman( game );
-  game.ghosts.forEach( ( g ) => moveGhost( game, g ) );
+  game.ghosts.forEach( ( g, i ) => moveGhost( game, g, i ) );
   game.roundTick++;
 
   for ( const g of game.ghosts ) {
-    if ( collides( game.pacman, g ) ) {
-      game.lives--;
-      if ( game.lives <= 0 ) {
-        game.state = 'lost';
-        return;
-      }
-      resetPositions( game );
-      break;
+    if ( !collides( game.pacman, g ) || g.mode === 'eaten' ) continue;
+
+    if ( g.mode === 'frightened' ) {
+      const pointsIndex = Math.min( game.frightenedChain, GHOST_EATEN_POINTS.length - 1 );
+      game.score += GHOST_EATEN_POINTS[ pointsIndex ];
+      game.frightenedChain = Math.min( game.frightenedChain + 1, GHOST_EATEN_POINTS.length );
+      g.mode = 'eaten';
+      g.speed = GHOST_SPEED;
+      continue;
     }
+
+    game.frightenedTicks = 0;
+    game.frightenedChain = 0;
+    game.lives--;
+    if ( game.lives <= 0 ) {
+      game.state = 'lost';
+      return;
+    }
+    resetPositions( game );
+    break;
   }
 
   if ( game.dotsRemaining <= 0 ) game.state = 'won';
