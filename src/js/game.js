@@ -170,6 +170,19 @@ function activateFrightenedMode( game ) {
   }
 }
 
+function updateFrightenedMode( game ) {
+  if ( game.frightenedTicks <= 0 ) return;
+
+  game.frightenedTicks--;
+  if ( game.frightenedTicks > 0 ) return;
+
+  for ( const g of game.ghosts ) {
+    if ( g.mode !== 'frightened' ) continue;
+    g.mode = 'active';
+    g.speed = GHOST_SPEED;
+  }
+}
+
 function movePacman( game ) {
   const p = game.pacman;
   const grid = game.grid;
@@ -234,7 +247,7 @@ function decideGhost( game, g ) {
   g.dir = findShortestDirection( grid, g.x, g.y, target.x, target.y, choices ) || choices[ 0 ];
 }
 
-function moveGhost( game, g ) {
+function moveGhost( game, g, index ) {
   const grid = game.grid;
   const width = grid[ 0 ].length;
 
@@ -246,15 +259,39 @@ function moveGhost( game, g ) {
   if ( aligned( g.x ) && aligned( g.y ) ) {
     g.x = Math.round( g.x );
     g.y = Math.round( g.y );
+    let recovered = false;
+
+    if ( g.mode === 'eaten' ) {
+      const start = GHOST_STARTS[ index ];
+      g.speed = GHOST_SPEED;
+      if ( g.x === start.x && g.y === start.y ) {
+        g.mode = 'exiting';
+        g.dir = findShortestDirection( grid, g.x, g.y, 13, 11 );
+        recovered = true;
+      } else {
+        g.dir = findShortestDirection( grid, g.x, g.y, start.x, start.y );
+      }
+    }
 
     if ( g.mode === 'exiting' ) {
       if ( g.x === 13 && g.y === 11 ) {
         g.mode = 'active';
+        g.speed = GHOST_SPEED;
         return;
       }
-      const choices = getGhostChoices( grid, g );
-      g.dir = findShortestDirection( grid, g.x, g.y, 13, 11, choices );
-    } else {
+      if ( !recovered ) {
+        const choices = getGhostChoices( grid, g );
+        g.dir = findShortestDirection( grid, g.x, g.y, 13, 11, choices );
+      }
+    } else if ( g.mode === 'frightened' ) {
+      // En el tick de activacion conserva la inversion antes de decidir al azar.
+      if ( game.frightenedTicks !== FRIGHTENED_DURATION ) {
+        const choices = getGhostChoices( grid, g );
+        if ( choices.length ) {
+          g.dir = choices[ Math.floor( Math.random() * choices.length ) ];
+        }
+      }
+    } else if ( g.mode === 'active' ) {
       decideGhost( game, g );
     }
 
@@ -288,8 +325,9 @@ function collides( a, b ) {
 }
 
 function update( game ) {
+  updateFrightenedMode( game );
   movePacman( game );
-  game.ghosts.forEach( ( g ) => moveGhost( game, g ) );
+  game.ghosts.forEach( ( g, i ) => moveGhost( game, g, i ) );
   game.roundTick++;
 
   for ( const g of game.ghosts ) {
